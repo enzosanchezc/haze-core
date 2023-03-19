@@ -27,10 +27,14 @@ else:
 # Log version
 logger.info('Haze version: ' + VERSION)
 
-# Si no existe la carpeta database, se crea
-if (not os.path.exists('database')):
-    os.makedirs('database')
-    logger.info('Created database folder')
+# Verificar si existe la variable de entorno DB_LOCATION, sino, usar la carpeta database. Crear el directorio si no existe
+if (os.getenv('DB_LOCATION')):
+    db_location = os.getenv('DB_LOCATION')
+else:
+    db_location = 'database'
+if (not os.path.exists(db_location)):
+    os.mkdir(db_location)
+    logger.info('Database folder created')
 
 # Se intenta cargar la sesión de usuario desde el archivo de sesión session.pkl
 # Si no existe el archivo o la sesión expiró, se crea un objeto usuario
@@ -46,7 +50,7 @@ except:
     logger.info('User session created')
 
 # Se inicializa la base de datos sqlite3
-db = sql.connect('database/main.db')
+db = sql.connect(db_location + '/main.db')
 cursor = db.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS games (
     appid INTEGER PRIMARY KEY,
