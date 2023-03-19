@@ -1,5 +1,6 @@
 import datetime
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import requests
 import pickle
@@ -233,3 +234,24 @@ def save_cookies(requests_cookiejar, filename):
 def load_cookies(filename):
     with open(filename, 'rb') as f:
         return pickle.load(f)
+
+
+def init_logger(name: str = 'haze-core', level: int = logging.INFO):
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    formatter = logging.Formatter(
+    '%(asctime)s %(levelname)s %(name)s %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p')
+
+    # Stream handler
+    sh = logging.StreamHandler()
+    sh.setLevel(level)
+    sh.setFormatter(formatter)
+    logger.addHandler(sh)
+
+    # File handler
+    fh = RotatingFileHandler('haze.log', maxBytes=2*1024*1024, backupCount=1)
+    fh.setLevel(level)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
+    return logger

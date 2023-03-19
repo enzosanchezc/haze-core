@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 import sqlite3 as sql
 
 # Local application imports
-from functions import update_database, get_appid_list, save_cookies, load_cookies, trusty_sleep
+from functions import update_database, get_appid_list, save_cookies, load_cookies, trusty_sleep, init_logger
 from functions import save_cookies, load_cookies
 from classes import User
 
@@ -17,14 +17,12 @@ load_dotenv()
 
 VERSION = '0.1.0'
 
-# Se inicializa el logger a stdout para el manejo de errores
-logging.basicConfig(stream=sys.stdout, level=logging.INFO,
-                    format='%(asctime)s %(levelname)s %(name)s %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p')
-logger = logging.getLogger("haze-core")
-# Si existe la variable de entorno HAZE_DEBUG, se activa el modo debug
+# Se inicializa el logger
 if (os.getenv('HAZE_DEBUG')):
-    logging.getLogger("haze-core").setLevel(logging.DEBUG)
+    logger = init_logger(level=logging.DEBUG)
     logger.debug('Debug mode activated')
+else:
+    logger = init_logger()
 
 # Log version
 logger.info('Haze version: ' + VERSION)
