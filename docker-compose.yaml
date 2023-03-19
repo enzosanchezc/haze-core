@@ -1,0 +1,37 @@
+version: '3.9'
+services:
+  haze-core:
+    build: .
+    container_name: haze-core
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./2FA.maFile:/haze/2FA.maFile:ro
+      - database:/database:rw
+    image: haze-core:0.1.0
+  grafana:
+    container_name: grafana
+    restart: always
+    volumes:
+      - database:/database:rw
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:rw
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:rw
+      - grafana:/var/lib/grafana:rw
+    image: grafana/grafana:latest
+    ports:
+      - 3000:3000
+    environment:
+      - GF_INSTALL_PLUGINS=frser-sqlite-datasource
+  set-db-permissions:
+    image: alpine:latest
+    container_name: set-db-permissions
+    command: sh -c "while ! ls /database/main.db; do sleep 1; done; chown -R 472 /database/"
+    volumes:
+      - database:/database:rw
+    depends_on:
+      haze-core:
+        condition: service_started
+volumes:
+  database:
+  grafana:
