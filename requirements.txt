@@ -3,3 +3,4 @@ lxml==4.9.2
 requests==2.28.2
 bs4==0.0.1
 google-api-python-client==2.81.0
+python-dotenv==1.0.0
