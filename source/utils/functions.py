@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from time import time, sleep
 import sqlite3 as sql
 
-from classes import Game
+from . import classes
 
 
 def update_database(appID: list[int], database : sql.Connection, instant_prices=False, session: requests.Session = requests.Session, logger : logging.Logger = None):
@@ -33,7 +33,7 @@ def update_database(appID: list[int], database : sql.Connection, instant_prices=
     
     for i in range(len(appID)):
         logger.debug(f'[{i+1}/{len(appID)}] Updating game {appID[i]}...')
-        game = Game(appID[i], instant_prices=instant_prices, fast_mode=fast_mode, session=session, logger=logger)
+        game = classes.Game(appID[i], instant_prices=instant_prices, fast_mode=fast_mode, session=session, logger=logger)
         # Verificar si el juego ya está en la base de datos
         cursor.execute(f'SELECT * FROM {table} WHERE appid=?', (game.appID,))
         if cursor.fetchone() is None:

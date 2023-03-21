@@ -6,8 +6,8 @@ import requests
 from dotenv import load_dotenv
 
 # Local application imports
-from functions import update_database, get_appid_list, save_cookies, load_cookies, trusty_sleep, init_logger, init_db, save_cookies, load_cookies
-from classes import User
+from utils.functions import update_database, get_appid_list, save_cookies, load_cookies, trusty_sleep, init_logger, init_db, save_cookies, load_cookies
+from utils.classes import User
 
 load_dotenv()
 

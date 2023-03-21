@@ -13,6 +13,8 @@ import steam.guard as guard
 from lxml import html
 import urllib
 
+from . import functions
+
 load_dotenv()
 
 STEAM_COMMISION = 0.1304
