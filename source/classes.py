@@ -3,7 +3,6 @@ import os
 import json
 import sys
 import time
-from datetime import datetime
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import requests
@@ -167,7 +166,7 @@ class Game:
         # Obtiene la lista de los hash names de los cromos del juego
         hash_names = self.get_hash_names()
         price_list = [((float)(get_highest_buy_order(
-            i, session=self.session))) / 100 for i in hash_names]
+            i, session=self.session, logger=self.logger))) / 100 for i in hash_names]
         price_list.sort()
         return price_list
 
@@ -313,9 +312,16 @@ class User:
             'Logged in successfully with user ' + self.username)
 
 
-def get_card_sales_histogram(market_hash_name: str, session: requests.Session = requests.Session, only_highest_buy_order: bool = False):
+def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float = 0, session: requests.Session = requests.Session, only_highest_buy_order: bool = False, logger: logging.Logger = None):
     '''Obtener el histograma de oferta/demanda de un cromo
 
+    Parámetros
+    ----------
+    market_hash_name: str Market hash name del cromo. Se obtiene desde Steam.
+    throttling_time: float Tiempo de espera despues de cada request. Por defecto 0.
+
+    Retorna
+    -------
     Si only_highest_buy_order = False, retorna: X_buy, Y_buy, X_sell, Y_sell
     Si only_highest_buy_order = True, retorna: highest_buy_order
 
@@ -332,8 +338,7 @@ def get_card_sales_histogram(market_hash_name: str, session: requests.Session = 
 
     # Si falla la solicitud, reintenta cada 5 segundos
     while (response.status_code != 200):
-        for i in range(5, 0, -1):
-            time.sleep(1)
+        time.sleep(1)
         response = session.get(listings_URL)
     html = response.text
     soup = BeautifulSoup(html, 'html.parser')
@@ -342,14 +347,21 @@ def get_card_sales_histogram(market_hash_name: str, session: requests.Session = 
     item_nameid = last_script_token.split(');')[0].strip()
 
     itemordershistogram_URL = f'https://steamcommunity.com/market/itemordershistogram?country=AR&language=spanish&currency=34&item_nameid={item_nameid}&two_factor=0'
-    response = session.get(itemordershistogram_URL)
 
-    # Si falla la solicitud, reintenta cada 5 segundos
-    while (response.status_code != 200):
-        for i in range(5, 0, -1):
-            time.sleep(1)
-        response = session.get(listings_URL)
-    json = response.json()
+    # Para esta query, Steam no tira codigo de error distinto, sino que no devuelve un json, entonces no alcanza con chequear status code = 200
+    sleep_time = 5
+    while True:
+        response = session.get(itemordershistogram_URL)
+        if response.status_code == 200:
+            try:
+                json = response.json()
+                break
+            except:
+                logger.warn(f'Error getting card sales histogram. Retrying in {str(sleep_time)} seconds...')
+        else:
+            logger.warn(f'Error getting card sales histogram. Status code {str(response.status_code)} ({response.reason}). Retrying in {str(sleep_time)} seconds...')
+        time.sleep(sleep_time)
+        sleep_time *= 2
 
     X_buy: list[float]
     Y_buy: list[int]
@@ -374,7 +386,7 @@ def get_card_sales_histogram(market_hash_name: str, session: requests.Session = 
             f'Hubo un error al obtener el histograma de oferta/demanda del cromo {market_hash_name}')
 
 
-def get_highest_buy_order(market_hash_name: str, session: requests.Session = requests.Session):
+def get_highest_buy_order(market_hash_name: str, session: requests.Session = requests.Session, logger: logging.Logger = None):
     '''Obtener el precio de la orden de compra más alta de un cromo
 
     Retorna: highest_buy_order
@@ -384,4 +396,4 @@ def get_highest_buy_order(market_hash_name: str, session: requests.Session = req
     2 REQUESTS
     '''
 
-    return get_card_sales_histogram(market_hash_name, session, only_highest_buy_order=True)
+    return get_card_sales_histogram(market_hash_name, throttle_sleep_time=5, session=session, only_highest_buy_order=True, logger=logger)

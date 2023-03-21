@@ -15,28 +15,34 @@ from classes import Game
 
 def update_database(appID: list[int], database : sql.Connection, instant_prices=False, session: requests.Session = requests.Session, logger : logging.Logger = None):
     '''Actualizar la base de datos con la lista de juegos indicada'''
+
     cursor = database.cursor()
+    table = 'instant_prices' if instant_prices else 'games'
     fast_mode = True
+
     # Si la cantidad de juegos es mayor a 250, se desactiva el fast mode. Los valores de expected son empíricos
-    if len(appID) > 250:
-        fast_mode = False
-        time_left = datetime.timedelta(seconds=(len(appID) * 3.1))
-        logger.info(f'Expected completion time: {time_left.seconds // 3600}hs {time_left.seconds % 3600 // 60}min')
-    else:
-        time_left = datetime.timedelta(seconds=(len(appID) * 1.35))
-        logger.info(f'Expected completion time: {time_left.seconds // 60}min {time_left.seconds % 60}sec')
+    # Si se usa el modo instant_prices, no se calcula el expected time porque puede variar mucho
+    if not instant_prices:
+        if len(appID) > 250:
+            fast_mode = False
+            time_left = datetime.timedelta(seconds=(len(appID) * 3.1))
+            logger.info(f'Expected completion time: {time_left.seconds // 3600}hs {time_left.seconds % 3600 // 60}min')
+        else:
+            time_left = datetime.timedelta(seconds=(len(appID) * 1.35))
+            logger.info(f'Expected completion time: {time_left.seconds // 60}min {time_left.seconds % 60}sec')
+    
     for i in range(len(appID)):
         logger.debug(f'[{i+1}/{len(appID)}] Updating game {appID[i]}...')
         game = Game(appID[i], instant_prices=instant_prices, fast_mode=fast_mode, session=session, logger=logger)
         # Verificar si el juego ya está en la base de datos
-        cursor.execute('SELECT * FROM games WHERE appid=?', (game.appID,))
+        cursor.execute(f'SELECT * FROM {table} WHERE appid=?', (game.appID,))
         if cursor.fetchone() is None:
             # Si no está, se agrega
-            cursor.execute('INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?)', (
+            cursor.execute(f'INSERT INTO {table} VALUES (?, ?, ?, ?, ?, ?, ?, ?)', (
                 game.appID, game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(str, game.card_list))), game.last_updated))
         else:
             # Si está, se actualiza
-            cursor.execute('UPDATE games SET name=?, price=?, min_return=?, mean_return=?, median_return=?, cards_list=?, last_update=? WHERE appID=?', (
+            cursor.execute(f'UPDATE {table} SET name=?, price=?, min_return=?, mean_return=?, median_return=?, cards_list=?, last_update=? WHERE appID=?', (
                 game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(str, game.card_list))), game.last_updated, game.appID))
         database.commit()
 
@@ -255,3 +261,58 @@ def init_logger(name: str = 'haze-core', level: int = logging.INFO):
     logger.addHandler(fh)
 
     return logger
+
+
+def init_db(db_file: str = 'database/main.db', logger: logging.Logger = None):
+    db = sql.connect(db_file)
+    cursor = db.cursor()
+
+    # Crear tablas
+    # La tabla 'games' contiene los datos de los juegos
+    cursor.execute('''CREATE TABLE IF NOT EXISTS games (
+        appid INTEGER PRIMARY KEY,
+        name TEXT,
+        price REAL,
+        min_return REAL,
+        mean_return REAL,
+        median_return REAL,
+        cards_list TEXT,
+        last_update INTEGER
+    )''')
+    db.commit()
+    # La tabla 'instant_prices' contiene los mismos datos que 'games' pero con los precios de instant sell
+    cursor.execute('''CREATE TABLE IF NOT EXISTS instant_prices (
+        appid INTEGER PRIMARY KEY,
+        name TEXT,
+        price REAL,
+        min_return REAL,
+        mean_return REAL,
+        median_return REAL,
+        cards_list TEXT,
+        last_update INTEGER
+    )''')
+    db.commit()
+    
+    logger.info('Database initialized')
+
+    return db, cursor
+
+
+def throttle_retry_request(session: requests.Session = requests.Session, url: str = '', sleep_time: int = 5, max_retries: int = 5, logger: logging.Logger = None):
+    '''Intenta hacer una solicitud a una URL, si falla, espera sleep_time * 2 ^ tries segundos y vuelve a intentar hasta max_retries veces
+
+    Retorna: response
+
+    response: requests.Response Respuesta de la solicitud
+    '''
+    response = session.get(url)
+    retries = 0
+    while(response.status_code != 200 and retries < max_retries):
+        logger.info(f'Error {response.status_code} al hacer la solicitud a {url}, reintento en {sleep_time} segundos')
+        trusty_sleep(sleep_time)
+        response = session.get(url)
+        retries += 1
+        sleep_time *= 2
+    if response.status_code != 200:
+        logger.error(f'Error {response.status_code} al hacer la solicitud a {url}')
+    return response

@@ -5,12 +5,8 @@ import logging
 import requests
 from dotenv import load_dotenv
 
-# Third party imports
-import sqlite3 as sql
-
 # Local application imports
-from functions import update_database, get_appid_list, save_cookies, load_cookies, trusty_sleep, init_logger
-from functions import save_cookies, load_cookies
+from functions import update_database, get_appid_list, save_cookies, load_cookies, trusty_sleep, init_logger, init_db, save_cookies, load_cookies
 from classes import User
 
 load_dotenv()
@@ -50,20 +46,7 @@ except:
     logger.info('User session created')
 
 # Se inicializa la base de datos sqlite3
-db = sql.connect(db_location + '/main.db')
-cursor = db.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS games (
-    appid INTEGER PRIMARY KEY,
-    name TEXT,
-    price REAL,
-    min_return REAL,
-    mean_return REAL,
-    median_return REAL,
-    cards_list TEXT,
-    last_update INTEGER
-)''')
-db.commit()
-logger.info('Database initialized')
+db, cursor = init_db(db_location + '/main.db', logger=logger)
 
 logo = '''
       ___           ___           ___           ___      
@@ -105,6 +88,12 @@ try:
         logger.info('Updating database...')
         update_database(appid_list, db, session=user.session, logger=logger)
         logger.info('Database updated')
+        logger.info('Updating instant prices for top 10 games...')
+        # Se actualizan los precios instantaneos de los 10 juegos con mayor retorno
+        cursor.execute('SELECT appid FROM games ORDER BY min_return DESC LIMIT 10')
+        appid_list = [x[0] for x in cursor.fetchall()]
+        update_database(appid_list, db, session=user.session, logger=logger, instant_prices=True)
+        logger.info('Instant prices updated')
         # Dormir por una hora
         logger.info('Sleeping for 1 hour...')
         trusty_sleep(3600)
@@ -112,5 +101,6 @@ try:
 except KeyboardInterrupt:
     logger.info('Program closed')
 except Exception as e:
-    logger.error(e)
+    logger.exception(e)
+    if os.getenv('HAZE_DEBUG'): raise e
     sys.exit()
