@@ -72,13 +72,7 @@ class Game:
     def update(self, fast_mode=True, instant_prices=False):
         store_URL = 'https://store.steampowered.com/api/appdetails?cc=ar&appids=' + \
             str(self.appID)
-        response = self.session.get(store_URL)
-        # Si falla la solicitud, reintenta cada 5 segundos
-        while (response.status_code != 200):
-            self.logger.warn(
-                f'Could not update game {self.appID}. Reason: {response.reason}. Retrying in 5 seconds...')
-            time.sleep(5)
-            response = self.session.get(store_URL)
+        response = functions.throttle_retry_request(self.session, store_URL, self.logger)
 
         # Si la cantidad de appIDs ingresadas es mayor a 250, se reducen las requests por segundo para evitar error 503
         if (not fast_mode):
@@ -124,13 +118,7 @@ class Game:
         # Link a los cromos de un juego.
         cards_URL = 'https://steamcommunity.com/market/search/render/?l=spanish&currency=34&category_753_cardborder%5B%5D=tag_cardborder_0&category_753_item_class%5B%5D=tag_item_class_2&appid=753&norender=1&category_753_Game%5B%5D=tag_app_' + \
             str(self.appID)
-        response = self.session.get(cards_URL)
-        # Si falla la solicitud, reintenta cada 5 segundos
-        while (response.status_code != 200):
-            self.logger.warn(
-                f'Could not update game {self.appID}. Reason: {response.reason}. Retrying in 5 seconds...')
-            time.sleep(5)
-            response = self.session.get(cards_URL)
+        response = functions.throttle_retry_request(self.session, cards_URL, self.logger)
 
         cards_data = json.loads(response.text)
         # Si no existen cromos, retorna 0 para evitar un error
@@ -144,7 +132,7 @@ class Game:
         return cards_prices
 
     def get_hash_names(self):
-        '''Obtener uan lista de los hash_names de los cromos de un juego'''
+        '''Obtener una lista de los hash_names de los cromos de un juego'''
         # Link a los cromos de un juego.
         cards_URL = 'https://steamcommunity.com/market/search/render/?l=spanish&currency=34&category_753_cardborder%5B%5D=tag_cardborder_0&category_753_item_class%5B%5D=tag_item_class_2&appid=753&norender=1&category_753_Game%5B%5D=tag_app_' + \
             str(self.appID)
@@ -152,7 +140,7 @@ class Game:
         # Si falla la solicitud, reintenta cada 5 segundos
         while (response.status_code != 200 or json.loads(response.text)['total_count'] == 0):
             self.logger.warn(
-                f'Could not update game {self.appID}. Reason: {response.reason}. Retrying in 5 seconds...')
+                f'Could not get hashes for {self.appID}. Reason: {response.reason if response.status_code != 200 else "total_count = 0"}. Retrying in 5 seconds...')
             time.sleep(5)
             response = self.session.get(cards_URL)
 
@@ -168,7 +156,7 @@ class Game:
         # Obtiene la lista de los hash names de los cromos del juego
         hash_names = self.get_hash_names()
         price_list = [((float)(get_highest_buy_order(
-            i, session=self.session, logger=self.logger))) / 100 for i in hash_names]
+            i, max_retries=3, session=self.session, logger=self.logger))) / 100 for i in hash_names]
         price_list.sort()
         return price_list
 
@@ -314,13 +302,13 @@ class User:
             'Logged in successfully with user ' + self.username)
 
 
-def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float = 0, session: requests.Session = requests.Session, only_highest_buy_order: bool = False, logger: logging.Logger = None):
+def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float = 0, max_retries: int = 0, only_highest_buy_order: bool = False, session: requests.Session = requests.Session, logger: logging.Logger = None):
     '''Obtener el histograma de oferta/demanda de un cromo
 
     Parámetros
     ----------
     market_hash_name: str Market hash name del cromo. Se obtiene desde Steam.
-    throttling_time: float Tiempo de espera despues de cada request. Por defecto 0.
+    throttling_sleep_time: float Tiempo de espera despues de cada request satisfactoria. Por defecto 0.
 
     Retorna
     -------
@@ -336,12 +324,8 @@ def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float =
     2 REQUESTS
     '''
     listings_URL = f'https://steamcommunity.com/market/listings/753/{market_hash_name}/?currency=34&country=AR'
-    response = session.get(listings_URL)
-
-    # Si falla la solicitud, reintenta cada 5 segundos
-    while (response.status_code != 200):
-        time.sleep(1)
-        response = session.get(listings_URL)
+    response = functions.throttle_retry_request(session, listings_URL, max_retries, logger)
+    time.sleep(throttle_sleep_time)
     html = response.text
     soup = BeautifulSoup(html, 'html.parser')
     last_script = str(soup.find_all('script')[-1])
@@ -352,6 +336,7 @@ def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float =
 
     # Para esta query, Steam no tira codigo de error distinto, sino que no devuelve un json, entonces no alcanza con chequear status code = 200
     sleep_time = 5
+    retry_count = 1
     while True:
         response = session.get(itemordershistogram_URL)
         if response.status_code == 200:
@@ -359,11 +344,20 @@ def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float =
                 json = response.json()
                 break
             except:
+                if max_retries and max_retries == retry_count:
+                    logger.error(f'Could not card sales histogram for card {market_hash_name} after {str(max_retries)} retries.')
+                    return 0
                 logger.warn(f'Error getting card sales histogram. Retrying in {str(sleep_time)} seconds...')
         else:
+            if max_retries and max_retries == retry_count:
+                logger.error(f'Could not card sales histogram for card {market_hash_name} after {str(max_retries)} retries.')
+                return 0
             logger.warn(f'Error getting card sales histogram. Status code {str(response.status_code)} ({response.reason}). Retrying in {str(sleep_time)} seconds...')
         time.sleep(sleep_time)
         sleep_time *= 2
+        if max_retries:
+            retry_count += 1
+    time.sleep(throttle_sleep_time)
 
     X_buy: list[float]
     Y_buy: list[int]
@@ -388,7 +382,7 @@ def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float =
             f'Hubo un error al obtener el histograma de oferta/demanda del cromo {market_hash_name}')
 
 
-def get_highest_buy_order(market_hash_name: str, session: requests.Session = requests.Session, logger: logging.Logger = None):
+def get_highest_buy_order(market_hash_name: str, max_retries: int = 0, session: requests.Session = requests.Session, logger: logging.Logger = None):
     '''Obtener el precio de la orden de compra más alta de un cromo
 
     Retorna: highest_buy_order
@@ -397,5 +391,7 @@ def get_highest_buy_order(market_hash_name: str, session: requests.Session = req
 
     2 REQUESTS
     '''
-
-    return get_card_sales_histogram(market_hash_name, throttle_sleep_time=5, session=session, only_highest_buy_order=True, logger=logger)
+    if max_retries:
+        return get_card_sales_histogram(market_hash_name, throttle_sleep_time=1, max_retries=max_retries, session=session, only_highest_buy_order=True, logger=logger)
+    else:
+        return get_card_sales_histogram(market_hash_name, throttle_sleep_time=1, session=session, only_highest_buy_order=True, logger=logger)
