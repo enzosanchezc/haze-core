@@ -4,6 +4,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import requests
 import pickle
+from dotenv import load_dotenv
 
 from lxml import html
 from bs4 import BeautifulSoup
@@ -12,13 +13,14 @@ import sqlite3 as sql
 
 from . import classes
 
+load_dotenv()
 
 def update_database(appID: list[int], database : sql.Connection, instant_prices=False, session: requests.Session = requests.Session, logger : logging.Logger = None):
     '''Actualizar la base de datos con la lista de juegos indicada'''
 
     cursor = database.cursor()
     table = 'instant_prices' if instant_prices else 'games'
-    fast_mode = True
+    fast_mode = False if os.getenv('HAZE_DISABLE_FAST_MODE') else True
 
     # Si la cantidad de juegos es mayor a 250, se desactiva el fast mode. Los valores de expected son empíricos
     # Si se usa el modo instant_prices, no se calcula el expected time porque puede variar mucho
@@ -316,3 +318,97 @@ def throttle_retry_request(session: requests.Session = requests.Session, url: st
     if response.status_code != 200:
         logger.error(f'Error {response.status_code} getting {url}')
     return response
+
+def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float = 0, max_retries: int = 0, only_highest_buy_order: bool = False, session: requests.Session = requests.Session, logger: logging.Logger = None):
+    '''Obtener el histograma de oferta/demanda de un cromo
+
+    Parámetros
+    ----------
+    market_hash_name: str Market hash name del cromo. Se obtiene desde Steam.
+    throttling_sleep_time: float Tiempo de espera despues de cada request satisfactoria. Por defecto 0.
+
+    Retorna
+    -------
+    Si only_highest_buy_order = False, retorna: X_buy, Y_buy, X_sell, Y_sell
+    Si only_highest_buy_order = True, retorna: highest_buy_order
+
+    X_buy: list[float] Precio de compra
+    Y_buy: list[int] Cantidad de ordenes de compra
+    X_sell: list[float] Precio de venta
+    Y_sell: list[int] Cantidad de ordenes de venta
+    highest_buy_order: int Precio de la orden de compra más alta
+
+    2 REQUESTS
+    '''
+    listings_URL = f'https://steamcommunity.com/market/listings/753/{market_hash_name}/?currency=34&country=AR'
+    response = throttle_retry_request(session, listings_URL, max_retries, logger)
+    time.sleep(throttle_sleep_time)
+    html = response.text
+    soup = BeautifulSoup(html, 'html.parser')
+    last_script = str(soup.find_all('script')[-1])
+    last_script_token = last_script.split('(')[-1]
+    item_nameid = last_script_token.split(');')[0].strip()
+
+    itemordershistogram_URL = f'https://steamcommunity.com/market/itemordershistogram?country=AR&language=spanish&currency=34&item_nameid={item_nameid}&two_factor=0'
+
+    # Para esta query, Steam no tira codigo de error distinto, sino que no devuelve un json, entonces no alcanza con chequear status code = 200
+    sleep_time = 5
+    retry_count = 1
+    while True:
+        response = session.get(itemordershistogram_URL)
+        if response.status_code == 200:
+            try:
+                json = response.json()
+                break
+            except:
+                if max_retries and max_retries == retry_count:
+                    logger.error(f'Could not card sales histogram for card {market_hash_name} after {str(max_retries)} retries.')
+                    return 0
+                logger.warn(f'Error getting card sales histogram. Retrying in {str(sleep_time)} seconds...')
+        else:
+            if max_retries and max_retries == retry_count:
+                logger.error(f'Could not card sales histogram for card {market_hash_name} after {str(max_retries)} retries.')
+                return 0
+            logger.warn(f'Error getting card sales histogram. Status code {str(response.status_code)} ({response.reason}). Retrying in {str(sleep_time)} seconds...')
+        time.sleep(sleep_time)
+        sleep_time *= 2
+        if max_retries:
+            retry_count += 1
+    time.sleep(throttle_sleep_time)
+
+    X_buy: list[float]
+    Y_buy: list[int]
+    X_sell: list[float]
+    Y_sell: list[int]
+
+    if (json['success'] == 1):
+        if only_highest_buy_order:
+            return json['highest_buy_order']
+        X_buy = [json['buy_order_graph'][i][0]
+                 for i in range(len(json['buy_order_graph']))]
+        Y_buy = [json['buy_order_graph'][i][1]
+                 for i in range(len(json['buy_order_graph']))]
+        X_sell = [json['sell_order_graph'][i][0]
+                  for i in range(len(json['sell_order_graph']))]
+        Y_sell = [json['sell_order_graph'][i][1]
+                  for i in range(len(json['sell_order_graph']))]
+
+        return X_buy, Y_buy, X_sell, Y_sell
+    else:
+        raise ValueError(
+            f'Hubo un error al obtener el histograma de oferta/demanda del cromo {market_hash_name}')
+
+
+def get_highest_buy_order(market_hash_name: str, max_retries: int = 0, session: requests.Session = requests.Session, logger: logging.Logger = None):
+    '''Obtener el precio de la orden de compra más alta de un cromo
+
+    Retorna: highest_buy_order
+
+    highest_buy_order: int Precio de la orden de compra más alta
+
+    2 REQUESTS
+    '''
+    if max_retries:
+        return get_card_sales_histogram(market_hash_name, throttle_sleep_time=1, max_retries=max_retries, session=session, only_highest_buy_order=True, logger=logger)
+    else:
+        return get_card_sales_histogram(market_hash_name, throttle_sleep_time=1, session=session, only_highest_buy_order=True, logger=logger)
