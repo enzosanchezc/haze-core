@@ -298,7 +298,7 @@ def init_db(db_file: str = 'database/main.db', logger: logging.Logger = None):
     return db, cursor
 
 
-def throttle_retry_request(session: requests.Session = requests.Session, url: str = '', sleep_time: int = 5, max_retries: int = 5, logger: logging.Logger = None):
+def throttle_retry_request(session: requests.Session = requests.Session, url: str = '', sleep_time: int = 5, max_retries: int = 0, logger: logging.Logger = None):
     '''Intenta hacer una solicitud a una URL, si falla, espera sleep_time * 2 ^ tries segundos y vuelve a intentar hasta max_retries veces
 
     Retorna: response
@@ -307,12 +307,12 @@ def throttle_retry_request(session: requests.Session = requests.Session, url: st
     '''
     response = session.get(url)
     retries = 0
-    while(response.status_code != 200 and retries < max_retries):
-        logger.info(f'Error {response.status_code} al hacer la solicitud a {url}, reintento en {sleep_time} segundos')
+    while response.status_code != 200 and (retries < max_retries if max_retries else True):
+        logger.info(f'Error {response.status_code} getting {url}, retrying in {sleep_time} seconds')
         trusty_sleep(sleep_time)
         response = session.get(url)
         retries += 1
         sleep_time *= 2
     if response.status_code != 200:
-        logger.error(f'Error {response.status_code} al hacer la solicitud a {url}')
+        logger.error(f'Error {response.status_code} getting {url}')
     return response
