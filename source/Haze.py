@@ -99,8 +99,12 @@ try:
         trusty_sleep(3600)
 # Salvo que el programa se cierre de forma inesperada, se guardan los detalles en el logger antes de cerrarse
 except KeyboardInterrupt:
+    db.close()
+    logger.info('Database connection closed')
     logger.info('Program closed')
 except Exception as e:
     logger.exception(e)
     if os.getenv('HAZE_DEBUG'): raise e
+    db.close()
+    logger.info('Database connection closed')
     sys.exit()
