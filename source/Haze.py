@@ -79,12 +79,13 @@ try:
         logger.info('Updating database...')
         update_database(appid_list, db, session=user.session, logger=logger)
         logger.info('Database updated')
-        logger.info('Updating instant prices for top 10 games...')
-        # Se actualizan los precios instantaneos de los 10 juegos con mayor retorno
-        cursor.execute("SELECT appid FROM games WHERE last_update > STRFTIME('%s', 'now', '-2 hour') ORDER BY min_return DESC LIMIT 10")
-        appid_list = [x[0] for x in cursor.fetchall()]
-        update_database(appid_list, db, session=user.session, logger=logger, instant_prices=True)
-        logger.info('Instant prices updated')
+        if os.getenv('HAZE_ENABLE_INSTANT_PRICES'):
+            logger.info('Updating instant prices for top 10 games...')
+            # Se actualizan los precios instantaneos de los 10 juegos con mayor retorno
+            cursor.execute("SELECT appid FROM games WHERE last_update > STRFTIME('%s', 'now', '-2 hour') ORDER BY min_return DESC LIMIT 10")
+            appid_list = [x[0] for x in cursor.fetchall()]
+            update_database(appid_list, db, session=user.session, logger=logger, instant_prices=True)
+            logger.info('Instant prices updated')
         # Dormir por una hora
         logger.info('Sleeping for 1 hour...')
         trusty_sleep(3600)
