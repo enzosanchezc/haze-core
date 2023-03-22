@@ -7,7 +7,6 @@ import pickle
 from dotenv import load_dotenv
 
 from lxml import html
-from bs4 import BeautifulSoup
 from time import time, sleep
 import sqlite3 as sql
 
@@ -35,17 +34,22 @@ def update_database(appID: list[int], database : sql.Connection, instant_prices=
     
     for i in range(len(appID)):
         logger.debug(f'[{i+1}/{len(appID)}] Updating game {appID[i]}...')
-        game = classes.Game(appID[i], instant_prices=instant_prices, fast_mode=fast_mode, session=session, logger=logger)
+        game = classes.Game(appID[i], fast_mode=fast_mode, session=session, logger=logger)
+        if not game.has_cards or game.price == 0:
+            logger.debug(f'Game {appID[i]} has no cards or is free, skipping...')
+            continue
+        if instant_prices:
+            game.update_instant_prices()
         # Verificar si el juego ya está en la base de datos
-        cursor.execute(f'SELECT * FROM {table} WHERE appid=?', (game.appID,))
+        cursor.execute(f'SELECT * FROM {table} WHERE appid=?', (game.appid,))
         if cursor.fetchone() is None:
             # Si no está, se agrega
             cursor.execute(f'INSERT INTO {table} VALUES (?, ?, ?, ?, ?, ?, ?, ?)', (
-                game.appID, game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(str, game.card_list))), game.last_updated))
+                game.appid, game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(str, game.card_list))), game.last_updated))
         else:
             # Si está, se actualiza
             cursor.execute(f'UPDATE {table} SET name=?, price=?, min_return=?, mean_return=?, median_return=?, cards_list=?, last_update=? WHERE appID=?', (
-                game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(str, game.card_list))), game.last_updated, game.appID))
+                game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(str, game.card_list))), game.last_updated, game.appid))
         database.commit()
 
 
@@ -88,144 +92,6 @@ def get_appid_list(maxprice=16):
         i += 1
     appid_list = [int(x) for x in appid_list if not ',' in x]
     return appid_list
-
-
-def get_card_price_history(market_hash_name: str, session: requests.Session = requests.Session, since: str = 'general'):
-    '''Obtener el historial de precios de un cromo
-
-    since : str
-        'general', 'last-week', 'last-month', default:'general'
-
-    Retorna: X, Y, N
-
-    X: list[datetime] Fechas
-    Y: list[float] Precios
-    N: list[int] Cantidad vendidos
-
-    1 REQUEST
-    '''
-
-    price_history_url = f'https://steamcommunity.com/market/pricehistory/?appid=753&market_hash_name={market_hash_name}'
-    response = session.get(price_history_url)
-
-    # Si falla la solicitud, reintenta cada 5 segundos
-    while(response.status_code != 200):
-        wait_time = 1
-        for i in range(wait_time, 0, -1):
-            sleep(1)
-        wait_time *= 2
-        response = session.get(price_history_url)
-    json = response.json()
-
-    X: list[datetime.datetime]
-    Y: list[float]
-    N: list[int]
-
-    if(json['success'] == True):
-        X = [datetime.datetime.strptime(
-            json['prices'][i][0][:-4], '%b %d %Y %H') for i in range(len(json['prices']))]
-        Y = [json['prices'][i][1]
-             for i in range(len(json['prices']))]
-        N = [int(json['prices'][i][2])
-             for i in range(len(json['prices']))]
-        if(since == 'general'):
-            return X, Y, N
-        elif(since == 'last-week'):
-            X = [i for i in X if i > datetime.datetime.today() -
-                 datetime.timedelta(7)]
-            Y = Y[-len(X):]
-            N = N[-len(X):]
-            return X, Y, N
-        elif(since == 'last-month'):
-            X = [i for i in X if i > datetime.datetime.today() -
-                 datetime.timedelta(31)]
-            Y = Y[-len(X):]
-            N = N[-len(X):]
-            return X, Y, N
-        else:
-            raise ValueError(
-                f'Debe indicar un periodo de tiempo válido')
-    else:
-        raise ValueError(
-            f'Hubo un error al obtener el historial de precios del cromo {market_hash_name}')
-
-
-def get_card_sales_histogram(market_hash_name: str, session: requests.Session = requests.Session, only_highest_buy_order: bool = False):
-    '''Obtener el histograma de oferta/demanda de un cromo
-
-    Si only_highest_buy_order = False, retorna: X_buy, Y_buy, X_sell, Y_sell
-    Si only_highest_buy_order = True, retorna: highest_buy_order
-
-    X_buy: list[float] Precio de compra
-    Y_buy: list[int] Cantidad de ordenes de compra
-    X_sell: list[float] Precio de venta
-    Y_sell: list[int] Cantidad de ordenes de venta
-    highest_buy_order: int Precio de la orden de compra más alta
-
-    2 REQUESTS
-    '''
-    listings_URL = f'https://steamcommunity.com/market/listings/753/{market_hash_name}/?currency=34&country=AR'
-    response = session.get(listings_URL)
-
-    # Si falla la solicitud, reintenta cada 5 segundos
-    while(response.status_code != 200):
-        wait_time = 1
-        for i in range(wait_time, 0, -1):
-            sleep(1)
-        wait_time *= 2
-        response = session.get(listings_URL)
-    html = response.text
-    soup = BeautifulSoup(html, 'html.parser')
-    last_script = str(soup.find_all('script')[-1])
-    last_script_token = last_script.split('(')[-1]
-    item_nameid = last_script_token.split(');')[0].strip()
-
-    itemordershistogram_URL = f'https://steamcommunity.com/market/itemordershistogram?country=AR&language=spanish&currency=34&item_nameid={item_nameid}&two_factor=0'
-    response = session.get(itemordershistogram_URL)
-
-    # Si falla la solicitud, reintenta cada 5 segundos
-    while(response.status_code != 200):
-        wait_time = 1
-        for i in range(wait_time, 0, -1):
-            sleep(1)
-        wait_time *= 2
-        response = session.get(listings_URL)
-    json = response.json()
-
-    X_buy: list[float]
-    Y_buy: list[int]
-    X_sell: list[float]
-    Y_sell: list[int]
-
-    if(json['success'] == 1):
-        if only_highest_buy_order:
-            return json['highest_buy_order']
-        X_buy = [json['buy_order_graph'][i][0]
-                 for i in range(len(json['buy_order_graph']))]
-        Y_buy = [json['buy_order_graph'][i][1]
-                 for i in range(len(json['buy_order_graph']))]
-        X_sell = [json['sell_order_graph'][i][0]
-                  for i in range(len(json['sell_order_graph']))]
-        Y_sell = [json['sell_order_graph'][i][1]
-                  for i in range(len(json['sell_order_graph']))]
-
-        return X_buy, Y_buy, X_sell, Y_sell
-    else:
-        raise ValueError(
-            f'Hubo un error al obtener el histograma de oferta/demanda del cromo {market_hash_name}')
-
-
-def get_highest_buy_order(market_hash_name: str, session: requests.Session = requests.Session):
-    '''Obtener el precio de la orden de compra más alta de un cromo
-
-    Retorna: highest_buy_order
-
-    highest_buy_order: int Precio de la orden de compra más alta
-
-    2 REQUESTS
-    '''
-
-    return get_card_sales_histogram(market_hash_name, session, only_highest_buy_order=True)
 
 
 def trusty_sleep(seconds: float):
@@ -318,97 +184,3 @@ def throttle_retry_request(session: requests.Session = requests.Session, url: st
     if response.status_code != 200:
         logger.error(f'Error {response.status_code} getting {url}')
     return response
-
-def get_card_sales_histogram(market_hash_name: str, throttle_sleep_time: float = 0, max_retries: int = 0, only_highest_buy_order: bool = False, session: requests.Session = requests.Session, logger: logging.Logger = None):
-    '''Obtener el histograma de oferta/demanda de un cromo
-
-    Parámetros
-    ----------
-    market_hash_name: str Market hash name del cromo. Se obtiene desde Steam.
-    throttling_sleep_time: float Tiempo de espera despues de cada request satisfactoria. Por defecto 0.
-
-    Retorna
-    -------
-    Si only_highest_buy_order = False, retorna: X_buy, Y_buy, X_sell, Y_sell
-    Si only_highest_buy_order = True, retorna: highest_buy_order
-
-    X_buy: list[float] Precio de compra
-    Y_buy: list[int] Cantidad de ordenes de compra
-    X_sell: list[float] Precio de venta
-    Y_sell: list[int] Cantidad de ordenes de venta
-    highest_buy_order: int Precio de la orden de compra más alta
-
-    2 REQUESTS
-    '''
-    listings_URL = f'https://steamcommunity.com/market/listings/753/{market_hash_name}/?currency=34&country=AR'
-    response = throttle_retry_request(session, listings_URL, max_retries, logger)
-    time.sleep(throttle_sleep_time)
-    html = response.text
-    soup = BeautifulSoup(html, 'html.parser')
-    last_script = str(soup.find_all('script')[-1])
-    last_script_token = last_script.split('(')[-1]
-    item_nameid = last_script_token.split(');')[0].strip()
-
-    itemordershistogram_URL = f'https://steamcommunity.com/market/itemordershistogram?country=AR&language=spanish&currency=34&item_nameid={item_nameid}&two_factor=0'
-
-    # Para esta query, Steam no tira codigo de error distinto, sino que no devuelve un json, entonces no alcanza con chequear status code = 200
-    sleep_time = 5
-    retry_count = 1
-    while True:
-        response = session.get(itemordershistogram_URL)
-        if response.status_code == 200:
-            try:
-                json = response.json()
-                break
-            except:
-                if max_retries and max_retries == retry_count:
-                    logger.error(f'Could not card sales histogram for card {market_hash_name} after {str(max_retries)} retries.')
-                    return 0
-                logger.warn(f'Error getting card sales histogram. Retrying in {str(sleep_time)} seconds...')
-        else:
-            if max_retries and max_retries == retry_count:
-                logger.error(f'Could not card sales histogram for card {market_hash_name} after {str(max_retries)} retries.')
-                return 0
-            logger.warn(f'Error getting card sales histogram. Status code {str(response.status_code)} ({response.reason}). Retrying in {str(sleep_time)} seconds...')
-        time.sleep(sleep_time)
-        sleep_time *= 2
-        if max_retries:
-            retry_count += 1
-    time.sleep(throttle_sleep_time)
-
-    X_buy: list[float]
-    Y_buy: list[int]
-    X_sell: list[float]
-    Y_sell: list[int]
-
-    if (json['success'] == 1):
-        if only_highest_buy_order:
-            return json['highest_buy_order']
-        X_buy = [json['buy_order_graph'][i][0]
-                 for i in range(len(json['buy_order_graph']))]
-        Y_buy = [json['buy_order_graph'][i][1]
-                 for i in range(len(json['buy_order_graph']))]
-        X_sell = [json['sell_order_graph'][i][0]
-                  for i in range(len(json['sell_order_graph']))]
-        Y_sell = [json['sell_order_graph'][i][1]
-                  for i in range(len(json['sell_order_graph']))]
-
-        return X_buy, Y_buy, X_sell, Y_sell
-    else:
-        raise ValueError(
-            f'Hubo un error al obtener el histograma de oferta/demanda del cromo {market_hash_name}')
-
-
-def get_highest_buy_order(market_hash_name: str, max_retries: int = 0, session: requests.Session = requests.Session, logger: logging.Logger = None):
-    '''Obtener el precio de la orden de compra más alta de un cromo
-
-    Retorna: highest_buy_order
-
-    highest_buy_order: int Precio de la orden de compra más alta
-
-    2 REQUESTS
-    '''
-    if max_retries:
-        return get_card_sales_histogram(market_hash_name, throttle_sleep_time=1, max_retries=max_retries, session=session, only_highest_buy_order=True, logger=logger)
-    else:
-        return get_card_sales_histogram(market_hash_name, throttle_sleep_time=1, session=session, only_highest_buy_order=True, logger=logger)

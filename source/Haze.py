@@ -23,6 +23,9 @@ else:
 # Log version
 logger.info('Haze version: ' + VERSION)
 
+if os.getenv('HAZE_DISABLE_FAST_MODE'):
+    logger.warning('Fast mode disabled')
+
 # Verificar si existe la variable de entorno DB_LOCATION, sino, usar la carpeta database. Crear el directorio si no existe
 if (os.getenv('DB_LOCATION')):
     db_location = os.getenv('DB_LOCATION')
@@ -68,29 +71,17 @@ try:
         logger.info('Getting appid list...')
         appid_list = get_appid_list()
         logger.info('Number of games: ' + str(len(appid_list)))
-        # Da la opcion de omitir los juegos que ya estan comprados
-        if (user.webAPIKey != ''):
-            logger.debug('Web API key found: ' + user.webAPIKey)
-            logger.info('Checking owned games...')
-            owned_games_URL = 'http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=' + \
-                user.webAPIKey + '&steamid=' + \
-                str(user.steamID64) + '&format=json'
-            games_data = user.session.get(
-                owned_games_URL).json()['response']
-            owned_games_list = [int(games_data['games'][x]['appid']) for x in range(
-                len(games_data['games']))]
-            logger.debug('Owned games: ' + str(owned_games_list))
-            appid_list = [x for x in appid_list if int(
-                x) not in owned_games_list]
+        # Omitir los juegos que ya estan comprados
+        user.update_owned_games()
+        appid_list = [x for x in appid_list if x not in user.owned_games]
         logger.info('Number of games to check: ' + str(len(appid_list)))
-        logger.debug('Appid list: ' + str(appid_list))
-        # Se actualiza la base de datos
+        # Actualizar la base de datos
         logger.info('Updating database...')
         update_database(appid_list, db, session=user.session, logger=logger)
         logger.info('Database updated')
         logger.info('Updating instant prices for top 10 games...')
         # Se actualizan los precios instantaneos de los 10 juegos con mayor retorno
-        cursor.execute('SELECT appid FROM games ORDER BY min_return DESC LIMIT 10')
+        cursor.execute("SELECT appid FROM games WHERE last_update > STRFTIME('%s', 'now', '-2 hour') ORDER BY min_return DESC LIMIT 10")
         appid_list = [x[0] for x in cursor.fetchall()]
         update_database(appid_list, db, session=user.session, logger=logger, instant_prices=True)
         logger.info('Instant prices updated')
