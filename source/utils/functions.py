@@ -45,11 +45,11 @@ def update_database(appID: list[int], database : sql.Connection, instant_prices=
         if cursor.fetchone() is None:
             # Si no está, se agrega
             cursor.execute(f'INSERT INTO {table} VALUES (?, ?, ?, ?, ?, ?, ?, ?)', (
-                game.appid, game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(str, game.card_list))), game.last_updated))
+                game.appid, game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(lambda x: str(x.price), game.card_list))), game.last_updated))
         else:
             # Si está, se actualiza
             cursor.execute(f'UPDATE {table} SET name=?, price=?, min_return=?, mean_return=?, median_return=?, cards_list=?, last_update=? WHERE appID=?', (
-                game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(str, game.card_list))), game.last_updated, game.appid))
+                game.name, game.price, game.min_profit, game.avg_profit, game.med_profit, ', '.join(list(map(lambda x: str(x.price), game.card_list))), game.last_updated, game.appid))
         database.commit()
 
 

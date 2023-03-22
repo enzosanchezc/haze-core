@@ -5,8 +5,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY source/Haze.py .
-COPY source/classes.py .
-COPY source/functions.py .
+COPY source/utils/ ./utils/
 
 ENV DB_LOCATION /database
 
