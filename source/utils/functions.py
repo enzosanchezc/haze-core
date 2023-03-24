@@ -166,7 +166,7 @@ def init_db(db_file: str = 'database/main.db', logger: logging.Logger = None):
     return db, cursor
 
 
-def throttle_retry_request(session: requests.Session = requests.Session, url: str = '', sleep_time: int = 5, max_retries: int = 0, logger: logging.Logger = None):
+def throttle_retry_request(session: requests.Session = requests.Session, url: str = '', sleep_time: int = 5, max_retries: int = 0, logger: logging.Logger = logging.getLogger('root')):
     '''Intenta hacer una solicitud a una URL, si falla, espera sleep_time * 2 ^ tries segundos y vuelve a intentar hasta max_retries veces
 
     Retorna: response
