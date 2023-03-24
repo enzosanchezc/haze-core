@@ -77,7 +77,7 @@ class Game:
         
         store_URL = 'https://store.steampowered.com/api/appdetails?cc=ar&appids=' + \
             str(self.appid)
-        response = functions.throttle_retry_request(self.session, store_URL, self.logger)
+        response = functions.throttle_retry_request(self.session, store_URL, logger=self.logger)
 
         # Si la cantidad de appids ingresadas es mayor a 250, se reducen las requests por segundo para evitar error 503
         if not fast_mode:
@@ -119,7 +119,7 @@ class Game:
         # Link a los cromos de un juego.
         cards_URL = 'https://steamcommunity.com/market/search/render/?l=spanish&currency=34&category_753_cardborder%5B%5D=tag_cardborder_0&category_753_item_class%5B%5D=tag_item_class_2&appid=753&norender=1&category_753_Game%5B%5D=tag_app_' + \
             str(self.appid)
-        response = functions.throttle_retry_request(self.session, cards_URL, self.logger)
+        response = functions.throttle_retry_request(self.session, cards_URL, logger=self.logger)
         if not fast_mode:
             time.sleep(1)
 
@@ -219,7 +219,7 @@ class Card:
             Precio de la orden de compra más alta
         '''
         listings_URL = f'https://steamcommunity.com/market/listings/753/{self.hash_name}/?currency=34&country=AR'
-        response = functions.throttle_retry_request(self.session, listings_URL, max_retries, self.logger)
+        response = functions.throttle_retry_request(self.session, listings_URL, max_retries=max_retries, logger=self.logger)
         time.sleep(throttle_sleep_time)
         last_script = html.fromstring(response.content).xpath('(//script)[last()]')[0].text
         last_script_token = last_script.split('(')[-1]
