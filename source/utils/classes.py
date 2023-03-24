@@ -337,8 +337,7 @@ class Card:
 
 
 class User:
-    '''Crear un objeto usuario donde se almacenan los datos del mismo.
-    El inicio de sesion es automático
+    '''Usuario de Steam
 
     Parametros
     ----------
