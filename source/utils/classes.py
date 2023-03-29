@@ -194,7 +194,7 @@ class Card:
         else:
             self.instant_price = self.get_sales_histogram(only_highest_buy_order=True)
 
-    def get_sales_histogram(self, throttle_sleep_time: float = 1, max_retries: int = 0, only_highest_buy_order: bool = False):
+    def get_sales_histogram(self, throttle: bool = True, max_retries: int = 0, only_highest_buy_order: bool = False):
         '''Obtener el histograma de oferta/demanda.
 
         Parámetros
@@ -220,7 +220,8 @@ class Card:
         '''
         listings_URL = f'https://steamcommunity.com/market/listings/753/{self.hash_name}/?currency=34&country=AR'
         response = functions.throttle_retry_request(self.session, listings_URL, max_retries=max_retries, logger=self.logger)
-        time.sleep(throttle_sleep_time)
+        if throttle:
+            time.sleep(1)
         last_script = html.fromstring(response.content).xpath('(//script)[last()]')[0].text
         last_script_token = last_script.split('(')[-1]
         item_nameid = last_script_token.split(');')[0].strip()
@@ -228,7 +229,7 @@ class Card:
         itemordershistogram_URL = f'https://steamcommunity.com/market/itemordershistogram?country=AR&language=spanish&currency=34&item_nameid={item_nameid}&two_factor=0'
 
         # Para esta query, Steam no tira codigo de error distinto, sino que no devuelve un json, entonces no alcanza con chequear status code = 200
-        sleep_time = 5
+        sleep_time = 60
         retry_count = 1
         while True:
             response = self.session.get(itemordershistogram_URL)
@@ -250,7 +251,8 @@ class Card:
             sleep_time *= 2
             if max_retries:
                 retry_count += 1
-        time.sleep(throttle_sleep_time)
+        if throttle:
+            time.sleep(5)
 
         X_buy: list[float]
         Y_buy: list[int]
